@@ -1,1 +1,2 @@
 # curly-sniffle
+# Generalization algorithm
