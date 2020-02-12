@@ -1,7 +1,7 @@
 # -*- coding: cp1250 -*-
 
 import arcpy
-from math import atan, cos, sin, degrees, pi
+from math import atan, cos, sin, degrees, pi, sqrt
 
 arcpy.env.overwriteOutput = True
 
@@ -53,13 +53,20 @@ def Import():
     buildings = []
 
     for row in arcpy.da.SearchCursor(data, ["OID@", "SHAPE@"]):
+        parts = []
         for i in row[1]:
             vertices = []
             for j in i:
                 vertices.append((j.X, j.Y))
                 #print(j.X, j.Y)
-        buildings.append(vertices)
+            parts.append(vertices)
+        buildings.append(parts)
 
+##    for i in buildings:
+##        for j in i:
+##            for k in j:
+##                print k
+##    print ("koniec buildings")
     return buildings
 
 
@@ -80,23 +87,29 @@ def Simplify(buildings):
     sim_build = []
 
     for build in buildings:
-        sim_ver = []
-        i = 0
-        for pnt in build:
-            if i == 0:
-                check = Angle(build[-1][0], build[-1][1], build[0][0], build[0][1], build[1][0], build[1][1])
-            elif i == len(build)-1:
-                check = Angle(build[-2][0], build[-2][1], build[-1][0], build[-1][1], build[0][0], build[0][1])
-            else:
-                check = Angle(build[i-1][0], build[i-1][1], build[i][0], build[i][1], build[i+1][0], build[i+1][1]) 
+        sim_ver = []        
+        for part in build:
+            i = 0
+            for pnt in part:
+                if i == 0:
+                    check = Angle(part[-1][0], part[-1][1], part[0][0], part[0][1], part[1][0], part[1][1])
+                elif i == len(part)-1:
+                    check = Angle(part[-2][0], part[-2][1], part[-1][0], part[-1][1], part[0][0], part[0][1])
+                else:
+                    check = Angle(part[i-1][0], part[i-1][1], part[i][0], part[i][1], part[i+1][0], part[i+1][1]) 
 
-            if check <= pi - float(toler) or check >= pi + float(toler):
-                sim_ver.append(pnt)
-
-            i+=1
-            
+                if check <= pi - float(toler) or check >= pi + float(toler):
+                    sim_ver.append(pnt)
+                i+=1 
         sim_build.append(sim_ver)
+            
+##    for i in sim_build:
+##        for j in i:
+##            print j
+##    print("koniec sim_build")
 
+##    print(sim_build)
+                
     return sim_build
 
 
@@ -105,20 +118,52 @@ def SaveSHP(data, name):
 
     cursor = arcpy.da.InsertCursor(shp, ['SHAPE@'])
 
-    point = arcpy.Point()
-    array = arcpy.Array()
-    
-
     for build in data:
         cursor.insertRow([build])
 
     del cursor
+
+def Dist(X1, Y1, X2, Y2):
+    d = sqrt((X2-X1)**2+(Y2-Y1)**2)
+    return d
+
+def CreateDiagonals(building):
+
+    diagonals = []
     
+    
+    k = 2
+    for pnt in building[2:-2]:
+        d = Dist(building[0][0], building[0][1], pnt[0], pnt[1])
+        s = {'id':k, 'len':d, 'vert':0 }
+        diagonals.append(s)
+        k += 1
+    
+    i = 1
+    for pnt in building[1:]:
+        j = i + 2    
+        for oth in building[i+2:-1]:
+            d = Dist(pnt[0], pnt[1], oth[0], oth[1])
+            s = {'id':int(str(i)+str(j)), 'len':d, 'vert':0 }
+            diagonals.append(s)
+
+            j += 1
+        i += 1
+
+
+    print diagonals
+
+        
 
 def main():
-    
     data = Import()
+    
     s_build = Simplify(data)
-    SaveSHP(s_build, "nazwa")
+    #SaveSHP(s_build, "name")
 
-main()
+    CreateDiagonals(s_build[4])
+
+    
+
+if __name__ == '__main__':
+    main()
