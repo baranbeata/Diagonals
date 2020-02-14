@@ -5,16 +5,13 @@ from math import atan, cos, sin, degrees, pi, sqrt
 
 arcpy.env.overwriteOutput = True
 
-#FUNKCJE
+#*** FUNCTIONS ***
 
 global toler
 global k
 
-#toler = raw_input("Podaj toleracjê upraszczania: ")
-#k = raw_input("Podaj liczbê wierzcho³ków: ")
-
-toler = 0.001
-k = 4
+toler = float(raw_input("Podaj toleracjê upraszczania: "))
+k = int(raw_input("Podaj liczbê wierzcho³ków: "))
 
 def Azimuth(X1, Y1, X2, Y2):
 
@@ -25,7 +22,6 @@ def Azimuth(X1, Y1, X2, Y2):
         quadrant = 0
     else:
         quadrant = atan(abs((Y2-Y1)/(X2-X1)))
-    #print(quadrant)
 
     if(dX>0 and dY>0):
         Az = quadrant
@@ -58,29 +54,11 @@ def Import():
             vertices = []
             for j in i:
                 vertices.append((j.X, j.Y))
-                #print(j.X, j.Y)
             parts.append(vertices)
         buildings.append(parts)
 
-##    for i in buildings:
-##        for j in i:
-##            for k in j:
-##                print k
-##    print ("koniec buildings")
     return buildings
 
-
-##X1 = buildings[0][0][0]
-##Y1 = buildings[0][0][1]
-##
-##X2 = buildings[0][1][0]
-##Y2 = buildings[0][1][1]
-
-##print(X1, Y1, X2, Y2)
-##
-##Az = Azimuth(X1, Y1, X2, Y2)
-##
-##print(Az)
 
 def Simplify(buildings):
 
@@ -102,13 +80,6 @@ def Simplify(buildings):
                     sim_ver.append(pnt)
                 i+=1 
         sim_build.append(sim_ver)
-            
-##    for i in sim_build:
-##        for j in i:
-##            print j
-##    print("koniec sim_build")
-
-##    print(sim_build)
                 
     return sim_build
 
@@ -127,43 +98,109 @@ def Dist(X1, Y1, X2, Y2):
     d = sqrt((X2-X1)**2+(Y2-Y1)**2)
     return d
 
+
 def CreateDiagonals(building):
+
+    ## Creating diagonals that don't cross the building
+    ## Structure: dictionary with ID (nodefrom-nodeto), length and numer of cut vertices
+
+    ## UPDATE: Added elements to dictionary: from and to nodes
 
     diagonals = []
     
+    array = arcpy.Array([arcpy.Point(*coords) for coords in building])
+
+    build_geom = arcpy.Geometry("POLYGON", array)
     
     k = 2
     for pnt in building[2:-2]:
         d = Dist(building[0][0], building[0][1], pnt[0], pnt[1])
-        s = {'id':k, 'len':d, 'vert':0 }
-        diagonals.append(s)
+        s = {'id':str(k), 'len':d, 'vert':k+1, 'from':0, 'to':k }
+        geom = arcpy.Geometry("POLYLINE", arcpy.Array([arcpy.Point(building[0][0], building[0][1]), arcpy.Point(*pnt)]))
+        if not geom.crosses(build_geom):
+            diagonals.append(s)
         k += 1
-    
+            
     i = 1
     for pnt in building[1:]:
         j = i + 2    
         for oth in building[i+2:-1]:
             d = Dist(pnt[0], pnt[1], oth[0], oth[1])
-            s = {'id':int(str(i)+str(j)), 'len':d, 'vert':0 }
-            diagonals.append(s)
-
+            v = j - i + 1
+            s = {'id':(str(i)+str(j)), 'len':d, 'vert':v, 'from':i, 'to':j }
+            geom = arcpy.Geometry("POLYLINE", arcpy.Array([arcpy.Point(*pnt), arcpy.Point(*oth)]))
+            if not geom.crosses(build_geom):
+                diagonals.append(s)
             j += 1
         i += 1
 
+    ## Sorting dictioraries by length of a diagonal
 
-    print diagonals
+    diagonals = sorted(diagonals, key=lambda k: k['len'])
+    
+    return diagonals
 
-        
+def Generalize(diagonals, building):
+
+    print( 'Generalization in progres...')
+
+    ## Count of building vertices:
+    ## (We need to be left with 4 vertices
+    ## That means the count is equal to 5,
+    ## since the first and last vertice is the same point)
+
+
+    ## Indexing vertices in building
+
+    xy = {i:building[i] for i in range(len(building))}
+
+    xy_check = {}
+    xy_rej = []
+    xy_draw = []
+
+    for diag in diagonals:
+        if diag['vert'] >= k and diag['from'] not in xy_check.keys() and diag['to'] not in xy_check.keys(): #xy_check.keys()??
+            i = 0
+            count = len(building) - len(xy_check)
+            if count <= 5: break
+            xy_rej = []
+            for vert in range(diag['from'], diag['to']+1):
+                if building[vert] not in xy_rej:
+                    if  i != 0 and i != diag['to'] - diag['from']:
+                        xy_check[vert] = building[vert]
+                    xy_rej.append(building[vert])
+                    i += 1
+            xy_draw.append(xy_rej)
+
+    rejected = xy_check.keys()
+
+    remain = []
+
+    for pnt in xy:
+        if pnt not in xy_check:
+            remain.append(xy[pnt])
+
+    return (xy_draw, [remain])
 
 def main():
+    
     data = Import()
     
     s_build = Simplify(data)
-    #SaveSHP(s_build, "name")
+    SaveSHP(s_build, "name")
 
-    CreateDiagonals(s_build[4])
+    results = [Generalize(CreateDiagonals(i), i) for i in s_build]
+
+    rej = []
+    rem = []
+
+    for build in results:
+        rej += build[0]
+        rem += build[1]
+
+    SaveSHP(rej, "rejected")
+    SaveSHP(rem, "remain") 
 
     
-
 if __name__ == '__main__':
     main()
