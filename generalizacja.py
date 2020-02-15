@@ -161,18 +161,15 @@ def Generalize(diagonals, building):
     for diag in diagonals:
         if diag['vert'] >= k and diag['from'] not in xy_check.keys() and diag['to'] not in xy_check.keys(): #xy_check.keys()??
             i = 0
-            count = len(building) - len(xy_check)
-            if count <= 5: break
             xy_rej = []
             for vert in range(diag['from'], diag['to']+1):
                 if building[vert] not in xy_rej:
                     if  i != 0 and i != diag['to'] - diag['from']:
+                        if len(xy) - len(xy_check) <= 5: break
                         xy_check[vert] = building[vert]
                     xy_rej.append(building[vert])
                     i += 1
             xy_draw.append(xy_rej)
-
-    rejected = xy_check.keys()
 
     remain = []
 
@@ -204,3 +201,4 @@ def main():
     
 if __name__ == '__main__':
     main()
+
