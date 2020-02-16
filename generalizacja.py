@@ -1,17 +1,29 @@
 # -*- coding: cp1250 -*-
 
+## The tool does not work properly when encountering
+## multipoligons and poligons with interior rings
+
+## Non-iterative solution of the problem
+
 import arcpy
 from math import atan, cos, sin, degrees, pi, sqrt
 
 arcpy.env.overwriteOutput = True
+arcpy.env.qualifiedFieldNames = False
 
-#*** FUNCTIONS ***
+## *** FUNCTIONS ***
 
 global toler
 global k
+global bud_count
 
-toler = float(raw_input("Podaj tolerację upraszczania: "))
-k = int(raw_input("Podaj liczbę wierzchołków: "))
+toler = float(raw_input("Enter tolerance for simplifying [rad]: "))
+k = int(raw_input("Enter number of vertices to generalize: "))
+
+if k <= 2:
+    k = 3
+
+bud_count = 0
 
 def Azimuth(X1, Y1, X2, Y2):
 
@@ -84,13 +96,19 @@ def Simplify(buildings):
     return sim_build
 
 
-def SaveSHP(data, name):
+def SaveSHP(data, name, *fields):
+    
     shp = arcpy.CreateFeatureclass_management(r'.\\', str(name)+'.shp', 'POLYGON')
+    
+    for field in fields:
+        arcpy.AddField_management(shp, field, 'Integer')
 
-    cursor = arcpy.da.InsertCursor(shp, ['SHAPE@'])
+    col = ['SHAPE@'] + list(fields)
+
+    cursor = arcpy.da.InsertCursor(shp, col)
 
     for build in data:
-        cursor.insertRow([build])
+        cursor.insertRow(build)
 
     del cursor
 
@@ -114,9 +132,13 @@ def CreateDiagonals(building):
     
     k = 2
     for pnt in building[2:-2]:
-        d = Dist(building[0][0], building[0][1], pnt[0], pnt[1])
-        s = {'id':str(k), 'len':d, 'vert':k+1, 'from':0, 'to':k }
         geom = arcpy.Geometry("POLYLINE", arcpy.Array([arcpy.Point(building[0][0], building[0][1]), arcpy.Point(*pnt)]))
+        d = Dist(building[0][0], building[0][1], pnt[0], pnt[1])
+        if geom.within(build_geom):
+            in_out = 1
+        else:
+            in_out = 0
+        s = {'id':str(k), 'len':d, 'vert':k+1, 'from':0, 'to':k, 'in': in_out}
         if not geom.crosses(build_geom):
             diagonals.append(s)
         k += 1
@@ -125,10 +147,14 @@ def CreateDiagonals(building):
     for pnt in building[1:]:
         j = i + 2    
         for oth in building[i+2:-1]:
+            geom = arcpy.Geometry("POLYLINE", arcpy.Array([arcpy.Point(*pnt), arcpy.Point(*oth)]))
             d = Dist(pnt[0], pnt[1], oth[0], oth[1])
             v = j - i + 1
-            s = {'id':(str(i)+str(j)), 'len':d, 'vert':v, 'from':i, 'to':j }
-            geom = arcpy.Geometry("POLYLINE", arcpy.Array([arcpy.Point(*pnt), arcpy.Point(*oth)]))
+            if geom.within(build_geom):
+                in_out = 1
+            else:
+                in_out = 0
+            s = {'id':(str(i)+str(j)), 'len':d, 'vert':v, 'from':i, 'to':j, 'in': in_out }
             if not geom.crosses(build_geom):
                 diagonals.append(s)
             j += 1
@@ -142,7 +168,11 @@ def CreateDiagonals(building):
 
 def Generalize(diagonals, building):
 
-    print( 'Generalization in progres...')
+    global k
+    global bud_count
+
+    print('Builing ' + str(bud_count) + ': generalization in progres... ' )
+
 
     ## Count of building vertices:
     ## (We need to be left with 4 vertices
@@ -157,6 +187,7 @@ def Generalize(diagonals, building):
     xy_check = {}
     xy_rej = []
     xy_draw = []
+    rej_count = 0
 
     for diag in diagonals:
         if diag['vert'] >= k and diag['from'] not in xy_check.keys() and diag['to'] not in xy_check.keys(): #xy_check.keys()??
@@ -169,13 +200,16 @@ def Generalize(diagonals, building):
                         xy_check[vert] = building[vert]
                     xy_rej.append(building[vert])
                     i += 1
-            xy_draw.append(xy_rej)
+            xy_draw.append([xy_rej, bud_count, rej_count, diag['in']])
+            rej_count += 1
 
     remain = []
 
     for pnt in xy:
         if pnt not in xy_check:
             remain.append(xy[pnt])
+
+    bud_count += 1
 
     return (xy_draw, [remain])
 
@@ -184,7 +218,6 @@ def main():
     data = Import()
     
     s_build = Simplify(data)
-    SaveSHP(s_build, "name")
 
     results = [Generalize(CreateDiagonals(i), i) for i in s_build]
 
@@ -193,12 +226,12 @@ def main():
 
     for build in results:
         rej += build[0]
-        rem += build[1]
+        rem += [build[1]]
 
-    SaveSHP(rej, "rejected")
-    SaveSHP(rem, "remain") 
+    SaveSHP(rej, "rejected", 'id', 'id_s', 'in_out')
+    SaveSHP(rem, "remain")
 
-    
+
 if __name__ == '__main__':
     main()
 
